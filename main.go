@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/OpenSlides/openslides-vote-client/client"
+	"github.com/OpenSlides/openslides-performance/client"
 	"github.com/OpenSlides/openslides-vote-client/tui"
 	"github.com/alecthomas/kong"
 )

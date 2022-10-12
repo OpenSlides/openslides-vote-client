@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/OpenSlides/openslides-vote-client/client"
+	"github.com/OpenSlides/openslides-performance/client"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
