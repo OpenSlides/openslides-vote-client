@@ -14,13 +14,13 @@ import (
 )
 
 // Run runs the command.
-func Run(cliCfg client.Config, pollID int, mainKey string) error {
+func Run(cliCfg client.Config, pollID int) error {
 	cli, err := client.New(cliCfg)
 	if err != nil {
 		return fmt.Errorf("initial http client: %w", err)
 	}
 
-	model, err := initialModel(pollID, mainKey, cli)
+	model, err := initialModel(pollID, cli)
 	if err != nil {
 		return fmt.Errorf("initial model: %w", err)
 	}
@@ -34,8 +34,7 @@ func Run(cliCfg client.Config, pollID int, mainKey string) error {
 }
 
 type model struct {
-	pollID     int
-	pubMainKey []byte
+	pollID int
 
 	ticks int
 	err   error
@@ -99,7 +98,8 @@ type poll struct {
 }
 
 type organization struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	MainKey []byte `json:"vote_decrypt_public_main_key"`
 }
 
 func (o organization) Domain() (string, error) {
@@ -121,20 +121,10 @@ type ballot struct {
 	debugVote string
 }
 
-func initialModel(pollID int, mainKey string, client *client.Client) (model, error) {
-	var key []byte
-	if len(mainKey) > 0 {
-		var err error
-		key, err = base64.StdEncoding.DecodeString(mainKey)
-		if err != nil {
-			return model{}, fmt.Errorf("decoding main key from base64: %w", err)
-		}
-	}
-
+func initialModel(pollID int, client *client.Client) (model, error) {
 	return model{
-		pollID:     pollID,
-		pubMainKey: key,
-		client:     client,
+		pollID: pollID,
+		client: client,
 	}, nil
 }
 
@@ -159,7 +149,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.ballot.sending = true
 			m.ballot.err = nil
-			voteValue, newBallot, err := createVote(m.poll, m.ballot, m.pubMainKey)
+			voteValue, newBallot, err := createVote(m.poll, m.ballot, m.organization.MainKey)
 			if err != nil {
 				m.err = fmt.Errorf("creating vote: %w", err)
 				return m, nil
@@ -189,6 +179,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := msg.err; err != nil {
 			m.err = fmt.Errorf("autoupdate: %w", err)
 			return m, nil
+		}
+
+		for k, v := range msg.value {
+			if k == "error" {
+				m.err = fmt.Errorf("autoupdate error: %s", v)
+				return m, nil
+			}
 		}
 
 		if err := parseKV("organization", 1, msg.value, &m.organization); err != nil {
@@ -260,13 +257,14 @@ func createVote(poll poll, bt ballot, pubMainKey []byte) (string, ballot, error)
 		v = "A"
 	}
 
+	value := fmt.Sprintf(`{"%d":"%s"}`, bt.optionID, v)
+
 	if poll.Type != "cryptographic" {
-		value := fmt.Sprintf(`{"%d":"%s"}`, bt.optionID, v)
 		return value, bt, nil
 	}
 
 	bt.token = createVoteToken()
-	withtoken := fmt.Sprintf(`{"%d":"%s","token":"%s"}`, bt.optionID, v, bt.token)
+	withtoken := fmt.Sprintf(`{"votes":%s,"token":"%s"}`, value, bt.token)
 
 	value, err := encryptVote(withtoken, pubMainKey, poll.CryptKey, poll.CryptKeySig)
 	if err != nil {
@@ -303,8 +301,8 @@ func (m model) View() string {
 
 	out := fmt.Sprintf("Hello %s!\n\n", m.user)
 
-	if m.pubMainKey != nil {
-		out += fmt.Sprintf("Please make sure the public main key is correct: %s\n\n", viewPubKey(m.pubMainKey))
+	if m.organization.MainKey != nil {
+		out += fmt.Sprintf("Please make sure the public main key is correct: %s\n\n", viewPubKey(m.organization.MainKey))
 	}
 
 	out += m.viewPoll()
@@ -332,7 +330,7 @@ func (m model) viewPoll() string {
 	switch m.poll.State {
 	case "started":
 		if m.poll.Type == "cryptographic" {
-			pollKeyValid := verify(m.pubMainKey, m.poll.CryptKey, m.poll.CryptKeySig)
+			pollKeyValid := verify(m.organization.MainKey, m.poll.CryptKey, m.poll.CryptKeySig)
 			if !pollKeyValid {
 				fmt.Fprintf(content, "Poll key is invalid")
 				return content.String()
@@ -378,7 +376,7 @@ func (m model) viewPoll() string {
 		}
 
 		if m.poll.Type == "cryptographic" {
-			if err := verifyPollResults(m.pubMainKey, m.poll, domain, m.ballot.token); err != nil {
+			if err := verifyPollResults(m.organization.MainKey, m.poll, domain, m.ballot.token); err != nil {
 				fmt.Fprintf(content, "Poll results are invalid: %v\n\n", err)
 			}
 		}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -72,12 +73,25 @@ func haveIVoted(cli *client.Client, pollID int) tea.Cmd {
 		}
 		defer resp.Body.Close()
 
-		var content map[int]bool
-		if err := json.NewDecoder(resp.Body).Decode(&content); err != nil {
-			return msgHaveIVoted{err: fmt.Errorf("decoding response body: %w", err)}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return msgHaveIVoted{err: fmt.Errorf("reading body: %w", err)}
 		}
 
-		return msgHaveIVoted{voted: content[pollID]}
+		var content map[int][]int
+		if err := json.Unmarshal(body, &content); err != nil {
+			return msgHaveIVoted{err: fmt.Errorf("decoding response body `%s`: %w", bytes.TrimSpace(body), err)}
+		}
+
+		voted := false
+		for _, id := range content[pollID] {
+			if id == cli.UserID() {
+				voted = true
+				break
+			}
+		}
+
+		return msgHaveIVoted{voted: voted}
 
 	}
 }

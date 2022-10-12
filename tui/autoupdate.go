@@ -110,6 +110,7 @@ func autoupdateRequest(userID int, pollID int) string {
 func parseKV(collection string, id int, value map[string]json.RawMessage, object any) error {
 	relevant := make(map[string]json.RawMessage)
 	prefix := fmt.Sprintf("%s/%d/", collection, id)
+
 	for k, v := range value {
 		if strings.HasPrefix(k, prefix) {
 			relevant[k[len(prefix):]] = v
